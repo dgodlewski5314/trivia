@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trivia Night</title>
+<style>
+:root{--bg:#fffaf0;--fg:#1c1917;--card:#fff;--line:#d6cfc2;--acc:#b91c1c;--accfg:#fff;--ok:#15803d;--bad:#b91c1c;--mut:#57534e}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1614;--fg:#f5f0e8;--card:#262120;--line:#4a423d;--acc:#ef4444;--accfg:#1a1614;--ok:#4ade80;--bad:#f87171;--mut:#b8afa4;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--fg);font:21px/1.4 Georgia,"Times New Roman",serif}
+main{max-width:640px;margin:0 auto;padding:18px}
+h1{font-size:1.5em;margin:0 0 4px}h2{font-size:1.3em;margin:8px 0 14px}
+.mut{color:var(--mut);font-size:.85em}
+.card{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+button,input{font:inherit;border-radius:12px;border:2px solid var(--line);padding:14px 16px;width:100%;box-sizing:border-box;background:var(--card);color:var(--fg)}
+button{cursor:pointer;text-align:left;margin:8px 0}
+button.go{background:var(--acc);color:var(--accfg);border-color:var(--acc);text-align:center;font-weight:bold}
+button.sel{border-color:var(--acc);border-width:4px}
+button.ok{border-color:var(--ok);border-width:4px}button.no{border-color:var(--bad);border-width:4px}
+button:disabled{opacity:.9;cursor:default}
+.bar{height:12px;background:var(--line);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}.time{font-size:1.6em;font-weight:bold}
+.link{background:none;border:0;text-decoration:underline;width:auto;padding:4px;color:var(--mut);font-size:.8em}</style></head><body><main id="app"><p>Connecting…</p></main>
+<script>
+const $=document.getElementById("app");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const host=location.search.includes("host");
+let S=null,id=host?"":(localStorage.tid||""),cur=null,pick=null,note="",ready=host||!id,prev="";
+let hk=host?(sessionStorage.hk||(sessionStorage.hk=prompt("Host password")||"")):"";
+const myName=()=>host?"":(localStorage.tname||"");
+const post=(u,b,h)=>fetch(u,{method:"POST",headers:Object.assign({"Content-Type":"application/json"},h||{}),body:JSON.stringify(b||{})});
+const act=(a,s)=>post("/api/host/"+a,{set:s},{"x-host-key":hk}).then(r=>{if(r.status===401){sessionStorage.removeItem("hk");alert("Wrong host password. Reload and try again.")}});
+const board=n=>'<div class="card">'+S.board.slice(0,n||25).map((r,i)=>'<div class="row"><span>'+(i+1)+'. '+esc(r.n)+(r.n===myName()?' (you)':'')+(S.phase==="play"&&r.i<S.total?' <span class="mut">('+r.i+'/'+S.total+')</span>':'')+'</span><b>'+r.s+'</b></div>').join("")+'</div>';
+function forget(){localStorage.removeItem("tid");localStorage.removeItem("tname");id="";cur=null;pick=null;note="";ready=true;render()}
+async function me(){if(!id)return;const r=await post("/api/me",{id});if(r.status===404)return forget();cur=await r.json();pick=null;ready=true;render()}
+function render(){
+  if(!S||!ready)return;
+  let h='<h1>🎵 '+esc(S.title)+'</h1>';
+  if(!host&&!id){
+    if(document.getElementById("nm"))return;
+    $.innerHTML=h+'<div class="card"><p>Welcome! Please type your name to join.</p><input id="nm" maxlength="20" placeholder="Your first name" autocomplete="off"><button class="go" id="join">Join the game</button><p class="mut" id="err"></p></div>';
+    document.getElementById("join").onclick=async()=>{const n=document.getElementById("nm").value.trim();if(!n)return;
+      const r=await post("/api/join",{name:n});const j=await r.json();
+      if(j.id){id=j.id;localStorage.tid=id;localStorage.tname=n;await me()}else document.getElementById("err").textContent=j.error==="full"?"Sorry, the game is full.":"Please enter a name."};
+    return;
+  }
+  if(S.phase==="choose"){
+    h+=host?'<h2>Choose a game</h2><p class="mut">'+S.count+' players have joined so far.</p>'+S.sets.map(x=>'<button class="go" data-a="pick" data-s="'+esc(x.id)+'">'+esc(x.title)+'</button>').join(""):'<h2>Welcome, '+esc(myName())+'!</h2><p>The host is choosing a game. Please wait…</p><button class="link" id="chg">Not you? Change name</button>';
+  }else if(S.phase==="lobby"){
+    h+='<h2>Waiting room</h2><p class="mut">'+S.count+' of up to 25 players have joined:</p><div class="card">'+(S.board.map(r=>esc(r.n)).join(", ")||"Nobody yet")+'</div>';
+    h+=host?'<button class="go" data-a="start">Start the game</button><button class="link" data-a="choose">Choose a different game</button>':'<p>Hello, '+esc(myName())+'! The host will start the game shortly.</p><button class="link" id="chg">Not you? Change name</button>';
+  }else if(S.phase==="final"){
+    h+='<h2>Final scores</h2>'+board()+(host?'<button class="go" data-a="again">Play again</button>':'');
+  }else if(host){
+    h+='<h2>Game in progress</h2><p class="mut">'+S.finished+' of '+S.count+' players have finished. Everyone answers at their own pace.</p>'+board()+'<button class="go" data-a="end">End game and show final scores</button>';
+  }else if(!cur){
+    h+='<p>Loading your question…</p>';
+  }else if(!cur.q){
+    h+='<h2>You finished!</h2><p>Your score: <b>'+cur.score+'</b> out of '+(S.total*100)+'</p><p class="mut">Waiting for the others to finish…</p>'+board();
+  }else{
+    h+='<p class="mut">Question '+(cur.q.idx+1)+' of '+S.total+'</p>'+(note?'<p><b>'+note+'</b></p>':'')+'<h2>'+esc(cur.q.text)+'</h2>';
+    cur.q.opts.forEach((o,i)=>{h+='<button class="opt'+(pick===i?' sel':'')+'" data-i="'+i+'">'+"ABCD"[i]+'. '+esc(o)+'</button>'});
+    h+=pick!==null?'<button class="go" id="sub">Submit my answer</button><p class="mut">You can change your choice until you submit.</p>':'<p class="mut">Tap an answer, then press Submit.</p>';
+  }
+  $.innerHTML=h;
+  const g=x=>document.getElementById(x);
+  $.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>act(b.dataset.a,b.dataset.s));
+  $.querySelectorAll(".opt").forEach(b=>b.onclick=()=>{pick=+b.dataset.i;render()});
+  if(g("chg"))g("chg").onclick=forget;
+  if(g("sub"))g("sub").onclick=async()=>{g("sub").disabled=true;
+    const r=await post("/api/answer",{id,q:cur.q.idx,c:pick});
+    if(r.status===404)return forget();
+    if(r.status===409)return me();
+    const j=await r.json();note=j.correct?"✔ Correct!":"✘ Not quite.";cur={score:j.score,q:j.next};pick=null;render()};
+}
+const es=new EventSource("/events");
+es.onmessage=e=>{S=JSON.parse(e.data);
+  if(S.phase!==prev){prev=S.phase;
+    if(!host){if(S.phase==="lobby"||S.phase==="choose"){cur=null;pick=null;note=""}else if(S.phase==="play"&&id){me();return}}}
+  render()};
+if(!host&&id)me();
+</script></body></html>
