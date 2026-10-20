@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Music Trivia: 1980–2000</title>
+<style>
+:root{--bg:#fffaf0;--fg:#1c1917;--card:#fff;--line:#d6cfc2;--acc:#b91c1c;--accfg:#fff;--ok:#15803d;--bad:#b91c1c;--mut:#57534e}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1614;--fg:#f5f0e8;--card:#262120;--line:#4a423d;--acc:#ef4444;--accfg:#1a1614;--ok:#4ade80;--bad:#f87171;--mut:#b8afa4;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--fg);font:21px/1.4 Georgia,"Times New Roman",serif}
+main{max-width:640px;margin:0 auto;padding:18px}
+h1{font-size:1.5em;margin:0 0 4px}h2{font-size:1.3em;margin:8px 0 14px}
+.mut{color:var(--mut);font-size:.85em}
+.card{background:var(--card);border:2px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+button,input{font:inherit;border-radius:12px;border:2px solid var(--line);padding:14px 16px;width:100%;box-sizing:border-box;background:var(--card);color:var(--fg)}
+button{cursor:pointer;text-align:left;margin:8px 0}
+button.go{background:var(--acc);color:var(--accfg);border-color:var(--acc);text-align:center;font-weight:bold}
+button.sel{border-color:var(--acc);border-width:4px}
+button.ok{border-color:var(--ok);border-width:4px}button.no{border-color:var(--bad);border-width:4px}
+button:disabled{opacity:.9;cursor:default}
+.bar{height:12px;background:var(--line);border-radius:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--acc)}
+.row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}.time{font-size:1.6em;font-weight:bold}
+</style></head><body><main id="app"><p>Connecting…</p></main>
+<script>
+const $=document.getElementById("app");
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const host=location.search.includes("host");
+let S=null,done=false,id=localStorage.tid||"",name=localStorage.tname||"",mine=null,lastStart=0;
+let hk=host?(sessionStorage.hk||(sessionStorage.hk=prompt("Host password")||"")):"";
+const post=(u,b,h)=>fetch(u,{method:"POST",headers:Object.assign({"Content-Type":"application/json"},h||{}),body:JSON.stringify(b||{})});
+const act=a=>post("/api/host/"+a,{},{"x-host-key":hk}).then(r=>{if(r.status===401){sessionStorage.removeItem("hk");alert("Wrong host password. Reload and try again.")}});
+const board=n=>'<div class="card">'+S.board.slice(0,n||25).map((r,i)=>'<div class="row"><span>'+(i+1)+'. '+esc(r.n)+(!host&&r.n===name?' (you)':'')+'</span><b>'+r.s+'</b></div>').join("")+'</div>';
+function render(){
+  if(!S)return;
+  let h='<h1>🎵 Music Trivia: 1980–2000</h1>';
+  if(!host&&!id){
+    if(document.getElementById("nm"))return;
+    $.innerHTML=h+'<div class="card"><p>Welcome! Type your name to join.</p><input id="nm" maxlength="20" placeholder="Your first name" autocomplete="off"><button class="go" id="join">Join the game</button><p class="mut" id="err"></p></div>';
+    document.getElementById("join").onclick=async()=>{const n=document.getElementById("nm").value.trim();if(!n)return;
+      const r=await post("/api/join",{name:n});const j=await r.json();
+      if(j.id){id=j.id;name=n;localStorage.tid=id;localStorage.tname=n;render()}else document.getElementById("err").textContent=j.error==="full"?"Sorry, the game is full.":"Please enter a name."};
+    return;
+  }
+  if(S.phase==="q"&&S.qid!==lastStart){lastStart=S.qid;mine=null;done=false}
+  if(S.phase==="lobby"){
+    h+='<h2>Waiting room</h2><p class="mut">'+S.count+' of up to 25 players have joined:</p><div class="card">'+(S.board.map(r=>esc(r.n)).join(", ")||"Nobody yet")+'</div>';
+    h+=host?'<button class="go" data-a="start">Start the game</button>':'<p>Hello, '+esc(name)+'! The host will start the game shortly.</p>';
+  }else if(S.phase==="final"){
+    h+='<h2>Final scores</h2>'+board()+(host?'<button class="go" data-a="again">Play again</button>':'');
+  }else{
+    const rev=S.phase==="reveal";
+    h+='<p class="mut">Question '+(S.q+1)+' of '+S.total+(host?' · '+S.answered+' of '+S.count+' answered':'')+'</p>';
+    h+='<h2>'+esc(S.text)+'</h2>';
+    S.opts.forEach((o,i)=>{let c="";if(rev)c=i===S.correct?"ok":(mine===i?"no":"");else if(mine===i)c="sel";
+      h+='<button class="opt '+c+'" data-i="'+i+'" '+((host||rev||done)?"disabled":"")+'>'+"ABCD"[i]+'. '+esc(o)+'</button>'});
+    if(!rev&&!host){h+=done?'<p class="mut">Answer submitted. Waiting for the others…</p>':(mine!==null?'<button class="go" id="sub">Submit my answer</button><p class="mut">You can change your choice until you submit.</p>':'<p class="mut">Tap an answer, then press Submit.</p>')}
+    if(rev){if(!host)h+='<p><b>'+(mine===S.correct?'Correct! ✔':(mine!==null?'Not quite.':'No answer.'))+'</b></p>';h+='<h2>Leaderboard</h2>'+board(8)}
+    if(host)h+=rev?'<button class="go" data-a="next">'+(S.q+1<S.total?'Next question':'Show final scores')+'</button>':'<button class="go" data-a="reveal">Reveal the answer</button>';
+  }
+  $.innerHTML=h;
+  $.querySelectorAll("[data-a]").forEach(b=>b.onclick=()=>act(b.dataset.a));
+  $.querySelectorAll(".opt").forEach(b=>b.onclick=()=>{if(done)return;mine=+b.dataset.i;render()});
+  const sb=document.getElementById("sub");
+  if(sb)sb.onclick=async()=>{sb.disabled=true;const r=await post("/api/answer",{id,c:mine});
+    if(r.status===404){localStorage.removeItem("tid");id="";mine=null;done=false;render();return}
+    done=true;render()};
+}
+const es=new EventSource("/events");
+es.onmessage=e=>{S=JSON.parse(e.data);render()};
+</script></body></html>
